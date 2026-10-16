@@ -1,0 +1,6 @@
+# Local installation and developer configuration.
+# Chat history is private to each user's machine.
+# Do not commit local secrets or database files.
+node_modules/
+.env
+data/
