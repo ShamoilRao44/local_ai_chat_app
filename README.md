@@ -11,6 +11,25 @@ A small, local ChatGPT-style chat UI for an OpenAI-compatible model server. Chat
 
 The app also opens without `.env` or a key; sending then reports the missing key.
 
+## Ubuntu desktop shortcut
+
+On an Ubuntu desktop, open a terminal in the project folder and run:
+
+```sh
+bash install-desktop-shortcut.sh
+```
+
+This installs a **Local AI Chat** icon on the desktop and in the applications
+menu. Double-click the icon to start the app (if it is not already running)
+and open it in the Ubuntu browser. The launcher writes server output to
+`~/.local/state/local-ai-chat-app/server.log`. If Ubuntu prompts you, choose
+**Allow Launching** for the desktop icon.
+
+This shortcut opens the app on the same Ubuntu machine. A browser on another
+computer cannot use this machine's `127.0.0.1` address; accessing it through an
+AWS notebook or a remote URL requires that environment's port-forwarding or
+proxy setup.
+
 ## Environment
 
 | Variable | Default | Purpose |
