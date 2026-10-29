@@ -130,7 +130,7 @@ function Sidebar({ chats, activeId, busyIds, collapsed, onToggle, onNewChat, onO
       {groups.map(([label, items]) => items.length > 0 && <section className="chat-group" key={label}><h2>{label}</h2>
         {items.map((chat) => <div className={`chat-row${chat.id === activeId ? ' active' : ''}`} key={chat.id}>
           {editingId === chat.id ? <input className="rename-input" value={draft} autoFocus onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') finishRename(chat.id, true); if (event.key === 'Escape') finishRename(chat.id, false); }} onBlur={() => finishRename(chat.id, true)} aria-label="Chat title" /> : <button className="chat-select" onClick={() => onOpenChat(chat.id)} title={chat.title}>{busyIds.includes(chat.id) && <span className="row-spinner" aria-label="Request in progress" />}{chat.title}</button>}
-          {deleteId === chat.id ? <div className="delete-confirm"><span>Delete this chat?</span><button onClick={() => { setDeleteId(null); onDelete(chat.id); }}>Delete</button><button onClick={() => setDeleteId(null)}>Cancel</button></div> : editingId !== chat.id && <div className="row-actions"><button className="icon-button" aria-label="Rename chat" title="Rename chat" onClick={() => beginRename(chat)}><Icon name="pencil" size={15} /></button><button className="icon-button" aria-label="Delete chat" title="Delete chat" onClick={() => setDeleteId(chat.id)}><Icon name="trash" size={15} /></button></div>}
+          {deleteId === chat.id ? <div className="delete-confirm"><span>{busyIds.includes(chat.id) ? 'Chat is busy; wait before deleting.' : 'Delete this chat?'}</span><button disabled={busyIds.includes(chat.id)} onClick={() => { setDeleteId(null); onDelete(chat.id); }}>Delete</button><button onClick={() => setDeleteId(null)}>Cancel</button></div> : editingId !== chat.id && <div className="row-actions"><button className="icon-button" aria-label="Rename chat" title="Rename chat" onClick={() => beginRename(chat)}><Icon name="pencil" size={15} /></button><button className="icon-button" aria-label="Delete chat" title="Delete chat" disabled={busyIds.includes(chat.id)} onClick={() => setDeleteId(chat.id)}><Icon name="trash" size={15} /></button></div>}
         </div>)}
       </section>)}
       {chats.length === 0 && <p className="sidebar-empty">Your chats will appear here.</p>}
@@ -180,6 +180,8 @@ function App() {
   const [collapsedSidebar, setCollapsedSidebar] = useState(() => localStorage.getItem('sidebar-collapsed') === 'true');
   const [collapsedMessages, setCollapsedMessages] = useState({});
   const [busyIds, setBusyIds] = useState([]);
+  const [compactingIds, setCompactingIds] = useState([]);
+  const [actionNotice, setActionNotice] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [atBottom, setAtBottom] = useState(true);
   const scrollRef = useRef(null);
@@ -188,6 +190,7 @@ function App() {
   const activeMessages = state.messages[state.activeId] || [];
   const activeChat = state.chats.find((chat) => chat.id === state.activeId);
   const isBusy = busyIds.includes(state.activeId);
+  const isCompacting = compactingIds.includes(state.activeId);
   const lastAssistant = [...activeMessages].reverse().find((message) => message.role === 'assistant');
   const lastTokens = lastAssistant?.prompt_tokens;
   const estimate = Math.round(activeMessages.reduce((total, message) => total + message.content.length, 0) / 3.5);
@@ -201,8 +204,8 @@ function App() {
   }, [isBusy, state.activeId]);
   useEffect(() => {
     const textarea = inputRef.current;
-    if (textarea && !isBusy) textarea.focus();
-  }, [state.activeId, isBusy]);
+    if (textarea && !isBusy && !isCompacting) textarea.focus();
+  }, [state.activeId, isBusy, isCompacting]);
   useEffect(() => {
     if (atBottom && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [activeMessages, isBusy, state.activeId, atBottom]);
@@ -264,7 +267,7 @@ function App() {
 
   async function sendMessage(content, retry = false, retryId = null) {
     const chatId = state.activeId;
-    if (!chatId || requestsRef.current.has(chatId)) return;
+    if (!chatId || requestsRef.current.has(chatId) || compactingIds.includes(chatId)) return;
     const currentMessages = state.messages[chatId] || [];
     const optimisticId = retryId || `local-${Date.now()}`;
     if (!retry) {
@@ -296,6 +299,28 @@ function App() {
       requestsRef.current.delete(chatId);
       setBusyIds((current) => current.filter((id) => id !== chatId));
       refreshChats().catch(() => {});
+    }
+  }
+
+  async function compactChat(mode) {
+    const chatId = state.activeId;
+    if (!chatId || requestsRef.current.has(chatId) || compactingIds.includes(chatId)) return;
+    if (mode === 'full' && !window.confirm('Full compact summarizes the entire conversation, including recent messages. The original transcript remains visible, but the model may lose details. Continue?')) return;
+    setActionNotice('');
+    setCompactingIds((current) => current.includes(chatId) ? current : [...current, chatId]);
+    try {
+      const result = await api(`/api/chats/${chatId}/compact`, {
+        method: 'POST',
+        body: JSON.stringify({ mode, model }),
+      });
+      setActionNotice(result.changed
+        ? `${mode === 'full' ? 'Full' : 'Standard'} compaction complete. Summarized ${result.summarizedMessages} messages${mode === 'standard' ? ` and kept ${result.retainedMessages} recent messages in full` : ''}.`
+        : result.message);
+      await refreshChats();
+    } catch (error) {
+      setState((current) => ({ ...current, loadError: error.message || 'Could not compact this chat.' }));
+    } finally {
+      setCompactingIds((current) => current.filter((id) => id !== chatId));
     }
   }
 
@@ -348,15 +373,20 @@ function App() {
   if (state.loadError && !state.config) return <div className="startup-error"><strong>Local chat could not start</strong><p>{state.loadError}</p><button onClick={boot}>Try again</button></div>;
 
   return <main className="app-shell">
-    <Sidebar chats={state.chats} activeId={state.activeId} busyIds={busyIds} collapsed={collapsedSidebar} onToggle={() => setCollapsedSidebar((value) => { localStorage.setItem('sidebar-collapsed', String(!value)); return !value; })} onNewChat={createOrFocusChat} onOpenChat={openChat} onRename={renameChat} onDelete={deleteChat} />
+    <Sidebar chats={state.chats} activeId={state.activeId} busyIds={[...busyIds, ...compactingIds]} collapsed={collapsedSidebar} onToggle={() => setCollapsedSidebar((value) => { localStorage.setItem('sidebar-collapsed', String(!value)); return !value; })} onNewChat={createOrFocusChat} onOpenChat={openChat} onRename={renameChat} onDelete={deleteChat} />
     <section className="chat-area">
       <header className="topbar"><div className="chat-title" title={activeChat?.title || 'New chat'}>{activeChat?.title || 'New chat'}</div>
         <div className="topbar-controls"><ModelPicker model={model} models={state.models} onModelChange={setModel} onSave={saveModel} />
+          <div className="compact-controls">
+            <button className="quiet-button" type="button" onClick={() => compactChat('standard')} disabled={!activeMessages.length || isBusy || isCompacting} title="Summarize older messages and keep recent exchanges in full">Compact</button>
+            <button className="quiet-button" type="button" onClick={() => compactChat('full')} disabled={!activeMessages.length || isBusy || isCompacting} title="Summarize the entire conversation, including recent messages">Full compact</button>
+          </div>
           <span className="token-indicator">{lastTokens != null ? `last request: ${lastTokens} prompt tokens` : `~${estimate} tokens`}</span>
           {activeMessages.some((message) => message.role === 'assistant') && <button className="quiet-button collapse-all" onClick={toggleAll}>{activeMessages.filter((message) => message.role === 'assistant').every((message) => collapsedMessages[message.id]) ? 'Expand all' : 'Collapse all'}</button>}
         </div>
       </header>
-      {state.loadError && <div className="inline-alert"><span>{state.loadError}</span><button onClick={() => setState((current) => ({ ...current, loadError: '' }))} aria-label="Dismiss">×</button></div>}
+      {(state.loadError || actionNotice) && <div className="inline-alert" role="status"><span>{state.loadError || actionNotice}</span><button onClick={() => { setActionNotice(''); setState((current) => ({ ...current, loadError: '' })); }} aria-label="Dismiss">×</button></div>}
+      {isCompacting && <div className="compact-progress" role="status"><span className="spinner" />Compacting conversation…</div>}
       <div className="message-scroll" ref={scrollRef} onScroll={(event) => { const element = event.currentTarget; const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 150; setAtBottom(nearBottom); }}>
         <div className="message-column">
           {activeMessages.length === 0 && !isBusy && <div className="empty-state"><h1>What can I help with?</h1><p>Enter sends · Shift+Enter adds a newline</p></div>}
@@ -367,7 +397,7 @@ function App() {
         </div>
       </div>
       {!atBottom && <button className="jump-latest" onClick={() => { setAtBottom(true); if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }}>Jump to latest <Icon name="down" size={15} /></button>}
-      <Composer disabled={!state.activeId} busy={isBusy} onSend={(content) => sendMessage(content)} onStop={stopRequest} inputRef={inputRef} />
+      <Composer disabled={!state.activeId || isCompacting} busy={isBusy} onSend={(content) => sendMessage(content)} onStop={stopRequest} inputRef={inputRef} />
     </section>
   </main>;
 }

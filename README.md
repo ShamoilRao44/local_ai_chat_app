@@ -54,6 +54,16 @@ proxy setup.
 - `.gitignore` - excludes local dependencies, secrets, and data.
 - `README.md` - setup and project notes.
 
+New chats are titled from the model's first response. You can change a title at
+any time using the rename control in the sidebar.
+
+Use **Compact** to summarize older messages while keeping roughly the latest
+two exchanges in full, or **Full compact** to summarize the whole conversation.
+The original transcript remains visible and stored; only the context sent to
+the model is compacted. Summarization uses conservative character-sized chunks,
+not exact token counts. Full compact asks for confirmation because summaries
+can omit details. Compaction is manual and uses the selected model.
+
 Data is stored in `data/chats.db`, ignored by git. Delete that file to reset local chats and saved models.
 
 ## Adding a feature
@@ -64,5 +74,5 @@ Add a server endpoint in the matching section of `server.js`, a small persistenc
 
 - `401` / `403`: check `LLM_API_KEY` and that the server accepts the required `x-api-key` header.
 - `Could not reach`: check `LLM_BASE_URL`, network access, and VPN connectivity.
-- `This chat is too long`: start a new chat; history is intentionally never trimmed.
+- `This chat is too long`: use Compact or Full compact to reduce the model context. The original transcript remains stored.
 - Port already in use: change `PORT` in `.env`.

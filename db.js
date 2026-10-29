@@ -38,6 +38,12 @@ database.run(`
     completion_tokens INTEGER,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS chat_contexts (
+    chat_id TEXT PRIMARY KEY REFERENCES chats(id) ON DELETE CASCADE,
+    summary TEXT NOT NULL,
+    through_message_id INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS models (
     name TEXT PRIMARY KEY,
     created_at INTEGER NOT NULL
@@ -131,6 +137,22 @@ export function touchChat(id, model) {
 export function getMessages(chatId) {
   return queryAll(`SELECT id, chat_id, role, content, model, prompt_tokens, completion_tokens, created_at
     FROM messages WHERE chat_id = ? ORDER BY id`, [chatId]);
+}
+
+export function getChatContext(chatId) {
+  return queryOne(`SELECT summary, through_message_id, updated_at
+    FROM chat_contexts WHERE chat_id = ?`, [chatId]);
+}
+
+export function saveChatContext(chatId, summary, throughMessageId) {
+  const updatedAt = Date.now();
+  database.run(`INSERT INTO chat_contexts(chat_id, summary, through_message_id, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(chat_id) DO UPDATE SET summary = excluded.summary,
+      through_message_id = excluded.through_message_id, updated_at = excluded.updated_at`,
+  [chatId, summary, throughMessageId, updatedAt]);
+  schedulePersist();
+  return { summary, through_message_id: throughMessageId, updated_at: updatedAt };
 }
 
 export function addMessage(chatId, role, content, model, promptTokens = null, completionTokens = null) {

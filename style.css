@@ -311,6 +311,7 @@ button:disabled {
 
 .topbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 20px;
@@ -320,6 +321,7 @@ button:disabled {
 }
 
 .chat-title {
+    flex: 1 1 180px;
     overflow: hidden;
     color: var(--text);
     font-size: 15px;
@@ -330,10 +332,27 @@ button:disabled {
 
 .topbar-controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
     gap: 14px;
     min-width: 0;
+}
+
+.compact-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.compact-progress {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    color: var(--muted);
+    font-size: 12px;
 }
 
 .model-picker {
